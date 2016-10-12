@@ -1,14 +1,16 @@
 ---
 title: "Analyse en Composantes Principales avec R"
-author: "Joël Boulier & Robin Cura"
-date: "Jeudi 13 Octobre 2016"
+author: "J. Boulier & R. Cura"
+date: "13 Octobre 2016"
 output:
-  rmdformats::material:
-    highlight: kate
-    keep_md: true
+  html_document:
+    toc: yes
   # revealjs::revealjs_presentation:
   #   transition: fade
-  #   keep_md: true
+  #   fig_width: 4.5
+  #   fig_height: 3
+  # rmdformats:::readthedown:
+  #   highlight: kate
 ---
 
 
@@ -27,6 +29,150 @@ opts_chunk$set(echo=TRUE,
                warning=FALSE)
 opts_knit$set(width=75)
 ```
+
+```{r creation des variables à utiliser, echo =  FALSE, eval = FALSE}
+load(file = "../DATA/RPDetail.RData")
+
+ComputePercentage <- function(df, varquali){
+  # calcule les résumés par commune et par modalité
+  dfLong <- df %>% 
+    group_by_("COMMUNE", varquali) %>%
+    summarise(NB = sum(IPONDL))
+  
+  # transforme en format large
+  castFormula <- paste("COMMUNE", " ~ ", varquali, sep = "")
+  dfWide <- dcast(dfLong, formula = castFormula, value.var = "NB", drop = FALSE, fill = 0)
+  
+  # calcule le total ligne
+  totalLgmt <- apply(dfWide[, 2:ncol(dfWide)], 1, sum)
+  
+  # calcule les pourcentages sur le total ligne
+  matPct <- apply(dfWide[, 2:ncol(dfWide)], 2, function(x) x / totalLgmt)
+  colnames(matPct) <- paste(varquali, sort(unique(df[[varquali]])), sep = "")
+  
+  # reconstruit le tableau final
+  dfFinal <- data.frame(COMMUNE = dfWide$COMMUNE,
+                        matPct,
+                        stringsAsFactors = FALSE)
+  
+  return(dfFinal)
+}
+
+toulResidPrinc <- toulLog %>% filter(CATL == 1)
+
+# statut d'occupation du logement
+tabSTOCD <- ComputePercentage(df = toulResidPrinc, varquali = "STOCD")
+# 00 : Logement ordinaire inoccupé
+# 10 : Propriétaire
+# 21 : Locataire ou sous-locataire d'un logement loué vide non HLM
+# 22 : Locataire ou sous-locataire d'un logement loué vide HLM
+# 23 : Locataire ou sous-locataire d'un logement loué meublé ou d'une chambre d'hôtel
+# 30 : Logé gratuitement
+# ZZ : Hors logement ordinaire
+
+# immigration personne de référence
+tabIMMIM <- ComputePercentage(df = toulResidPrinc, varquali = "IMMIM")
+# 1 : Immigrés
+# 2 : Non immigrés
+# Y : Hors résidence principale
+
+# activité de la personne de référence
+tabTACTM <- ComputePercentage(df = toulResidPrinc, varquali = "TACTM")
+# 11 : Actifs ayant un emploi, y compris sous apprentissage ou référence du ménage en stage rémunéré
+# 12 : Chômeurs
+# 21 : Retraités ou préretraités
+# 22 : Elèves, étudiants, stagiaires non rémunérés de 14 ans ou plus
+# 23 : Moins de 14 ans
+# 24 : Femmes ou hommes au foyer
+# 25 : Autres inactifs
+# YY : Hors résidence principale
+# ZZ : Hors logement ordinaire
+
+# diplome personne de référence
+tabDIPLM <- ComputePercentage(df = toulResidPrinc, varquali = "DIPLM")
+# 01 : Pas de scolarité
+# 02 : Aucun diplôme mais scolarité jusqu'en école primaire ou au collège
+# 03 : Aucun diplôme mais scolarité au delà du collège
+# 11 : Certificat d'études primaires
+# 12 : BEPC, brevet élémentaire, brevet des collèges
+# 13 : Certificat d'aptitudes professionnelles, brevet de compagnon
+# 14 : Brevet d'études professionnelles
+# 15 : Baccalauréat général, brevet supérieur
+
+# type de logement
+tabTYPL <- ComputePercentage(df = toulResidPrinc, varquali = "TYPL")
+# 1 : Maison
+# 2 : Appartement
+# 3 : Logement-foyer
+# 4 : Chambre d'hôtel
+# 5 : Habitation de fortune
+# 6 : Pièce indépendante (ayant sa propre entrée)
+# Z : Hors logement ordinaire
+
+# Ancienneté de recherche d'emploi (personne de référence du ménage)
+tabRECHM <- ComputePercentage(df = toulResidPrinc, varquali = "RECHM")
+# 0 : Ne recherche pas d'emploi
+# 1 : Cherche un emploi depuis moins d'un an
+# 2 : Cherche un emploi depuis plus d'un an
+# 9 : Non déclaré (inactif)
+# Z : Sans objet (en emploi)
+# Y : Hors résidence principale
+
+tabSocial <- tabSTOCD %>%
+  select(COMMUNE, STOCD10, STOCD22) %>%
+  rename(txPROPRIETAIRES = STOCD10, txHLM = STOCD22) %>%
+  left_join(by = "COMMUNE",
+    tabIMMIM %>%
+      select(COMMUNE,IMMIM1) %>%
+      rename( txIMMIGRES = IMMIM1)
+  ) %>%
+  left_join(by = "COMMUNE",
+    tabTACTM %>%
+      select(COMMUNE, TACTM12, TACTM21) %>%
+      rename(txCHOMEURS = TACTM12, txRETRAITES =  TACTM21)
+  ) %>%
+  left_join(by = "COMMUNE",
+    tabDIPLM %>%
+      select(COMMUNE, DIPLM15) %>%
+      rename(txDIPLOMESUP = DIPLM15)
+  ) %>%
+  left_join(by = "COMMUNE",
+    tabTYPL %>%
+      select(COMMUNE, TYPL1, TYPL2) %>%
+      rename(txMAISONS =  TYPL1,txAPPARTEMENTS = TYPL2)
+  ) %>%
+  left_join(by = "COMMUNE",
+    tabRECHM %>%
+      select(COMMUNE, RECHM2) %>%
+      rename(txCHOMEURSLONGUEDUREE = RECHM2)
+  )
+
+save(list = c("toulCom","tabSocial"), file = "ACP.Rdata")
+```
+
+```{r chargement donnees exemple, echo = FALSE}
+load("Multivarie.Rdata")
+```
+
+# Introduction
+
+![](img/vallee1.png)
+
+---
+
+![](img/vallee2.png)
+
+---
+
+![](img/vallee3.png)
+
+---
+
+![](img/vallee4.png)
+
+---
+
+![](img/vallee5.png)
 
 # Rappels sur l'analyse factorielle
 
@@ -67,7 +213,8 @@ Les analyses factorielles permettent de traiter des masses importantes de donné
 
 ---
 
-A retenir :
+A retenir :  
+
 - L’analyse factorielle consiste à **réduire** un nombre important de variables tout en minimisant la perte de l’information
 - Réduire la redondance = éliminer la **multicolinéarité**
 - Les facteurs issus de l’analyse factorielle peuvent servir de variables **indépendantes** (prédicteurs) dans une analyse de régression.
@@ -335,6 +482,8 @@ ggplot(coordsIndiv, aes(Axis1, Axis2)) +
   coord_fixed()
 ```
 
+---
+
 Ajout d'une variable descriptive
 
 ```{r coords indiv cat}
@@ -351,11 +500,10 @@ ggplot(coordsIndiv, aes(Axis1, Axis2, group = Species ,col=Species)) +
 ```
 
 
----
+
 
 ## Calcul et représentation des contributions des variables
-
-```{r contribs var}
+```{r contribs var 1}
 contribs <- inertia.dudi(acpExemple, row.inertia = TRUE, col.inertia = TRUE)
 
 contribVar <- as_data_frame(contribs$col.abs) %>%
@@ -364,7 +512,11 @@ contribVar <- as_data_frame(contribs$col.abs) %>%
 contribVarLong  <- contribVar %>%
   gather(key = Axis, value = Value, -Var) %>%
   mutate(Value = Value/10000)
+```
 
+---
+
+```{r contribs var 2}
 ggplot(contribVarLong, aes(Axis, Value, fill = Var)) +
   geom_bar(stat="identity") +
   scale_y_continuous(labels= percent)
@@ -391,12 +543,11 @@ ggplot(coordsIndiv, aes(Axis1, Axis2, size=CTRAxis1)) +
 
 ---
 
-## Calcul et représentation des qualités de représentation des variables
+## Calcul et représentation des qualité des variables
 
 On repart de la variable `contribs` qui contient aussi cette information
 
-```{r qlt var}
-
+```{r qlt var 1}
 qltVar <- as_data_frame(contribs$col.rel) %>%
   mutate(Var = row.names(contribs$col.rel)) %>%
   select(-con.tra)
@@ -404,7 +555,11 @@ qltVar <- as_data_frame(contribs$col.rel) %>%
 qltVarLong  <- qltVar %>%
   gather(key = Axis, value = Value, -Var) %>%
   mutate(Value = Value/10000)
+```
 
+---
+
+```{r qlt var 2}
 ggplot(qltVarLong, aes(factor(Axis), Value, fill = Axis)) +
   geom_bar(stat="identity", position="dodge") +
   facet_wrap(~Var) + 
@@ -413,16 +568,19 @@ ggplot(qltVarLong, aes(factor(Axis), Value, fill = Axis)) +
 
 ---
 
-## Représentation de la qualité de représentation  des individus
+## Représentation de la qualité des individus
 
-```{r qlt indivs}
-
+```{r qlt indivs 1}
 qltIndiv <- as_data_frame(contribs$row.rel / 10000)
 colnames(qltIndiv) <- paste("QLT", colnames(qltIndiv), sep="")
 
 coordsIndiv <- coordsIndiv %>%
   cbind(qltIndiv)
+```
 
+---
+
+```{r qlt indivs 2}
 ggplot(coordsIndiv, aes(Axis1, Axis2, col=QLTAxis1)) +
   geom_point() +
   geom_hline(yintercept = 0) +
@@ -431,7 +589,45 @@ ggplot(coordsIndiv, aes(Axis1, Axis2, col=QLTAxis1)) +
   coord_fixed()
 ```
 
+# Exercice d'application  
+
+--- 
+
+## Énoncé  
+
+- Réalisez une ACP sur le tableau de données `tabSocial`, qui contient des variables sociales structurelles sur votre aire d'étude.
+- Vous pourrez en cartographier les coordonnées des individus (les communes) sur les axes.
+
+---
+
+## Exemple de cartographie
+
+```{r}
+library(cartography)
+
+times100 <- function(x){x * 100}
+tabSocialPct <- tabSocial %>%
+  mutate_each(funs(times100), -COMMUNE)
+
+choroLayer(spdf = toulCom, 
+          df = tabSocialPct, 
+          spdfid = "INSEE_COM",
+          dfid = "COMMUNE",
+          var = "txRETRAITES",
+          method = "quantile",
+          nclass =  5)
+```
+
+
 # Sources
 
-- Cours : C. Cottineau & A. Pavard
-- R : ElementR
+---
+
+## Cours  
+
+- C. Cottineau & A. Pavard - Cours d'Analyse de Données et Représentations Cartographiques, L3 (Université Paris 1)
+- Sanders L., 1989, *L’analyse statistique des données en géographie*
+
+## R  
+
+- R : Groupe ElementR - R et Espace (Framabook)
